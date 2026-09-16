@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Food Menu</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f2f2f2;
+      margin: 0;
+      padding: 30px 15px;
+    }
+    main {
+      max-width: 700px;
+      margin: auto;
+      background-color: white;
+      padding: 25px;
+      border: 1px solid #cccccc;
+      border-radius: 8px;
+    }
+    h1 {
+      color: #333333;
+      text-align: center;
+      margin-top: 0;
+    }
+    .intro {
+      text-align: center;
+      color: #666666;
+    }
+    .card { margin-top: 25px; }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: bold;
+    }
+    .search-controls {
+      display: flex;
+      gap: 8px;
+    }
+    input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #aaaaaa;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    button {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      background-color: #007bff;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:hover { background-color: #0056b3; }
+    .secondary { background-color: #6c757d; }
+    .secondary:hover { background-color: #545b62; }
+    .hint {
+      margin-top: 8px;
+      color: #666666;
+      font-size: 14px;
+    }
+    #status { margin-top: 20px; }
+    #status.error { color: red; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    caption {
+      text-align: left;
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    th, td {
+      border: 1px solid #cccccc;
+      padding: 10px;
+      text-align: left;
+    }
+    th {
+      background-color: #007bff;
+      color: white;
+    }
+    .empty { text-align: center; }
+    footer {
+      margin-top: 20px;
+      text-align: center;
+      color: #666666;
+      font-size: 14px;
+    }
+    @media (max-width: 600px) {
+      .search-controls { flex-direction: column; }
+      main { padding: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Food Menu</h1>
+      <p class="intro">View all food items or search using an ID.</p>
+    </header>
+
+    <section class="card" aria-label="Menu and search">
+      <form id="search-form" novalidate>
+        <label for="food-id">Enter Food ID:</label>
+        <div class="search-controls">
+          <input id="food-id" type="text" inputmode="numeric" placeholder="Example: 2" aria-describedby="search-hint" autocomplete="off">
+          <button type="submit">Search</button>
+          <button class="secondary" id="show-all" type="button">Show All</button>
+        </div>
+        <p class="hint" id="search-hint">Try searching for ID 2.</p>
+      </form>
+
+      <p id="status" role="status" aria-live="polite">Loading menu...</p>
+      <table aria-busy="true" id="menu-table">
+        <caption>Our menu</caption>
+        <thead>
+          <tr><th scope="col">ID</th><th scope="col">Food</th><th scope="col">Price (&#8369;)</th></tr>
+        </thead>
+        <tbody id="food-list"></tbody>
+      </table>
+      <noscript>Please enable JavaScript to load and search the menu.</noscript>
+    </section>
+    <footer>All prices are in Philippine pesos.</footer>
+  </main>
+
+  <script>
+    const form = document.getElementById('search-form');
+    const input = document.getElementById('food-id');
+    const foodList = document.getElementById('food-list');
+    const status = document.getElementById('status');
+    const table = document.getElementById('menu-table');
+    let latestRequest = 0;
+
+    function showEmpty(message) {
+      foodList.replaceChildren();
+      const row = foodList.insertRow();
+      const cell = row.insertCell();
+      cell.colSpan = 3;
+      cell.className = 'empty';
+      cell.textContent = message;
+    }
+
+    async function loadFoods(id = '') {
+      // Ignore older responses when another search has already started.
+      const requestNumber = ++latestRequest;
+      status.className = '';
+      input.removeAttribute('aria-invalid');
+
+      if (id && (!/^[0-9]+$/.test(id) || !Number.isSafeInteger(Number(id)) || Number(id) < 1)) {
+        status.textContent = 'Please enter a positive whole number, such as 2.';
+        status.className = 'error';
+        input.setAttribute('aria-invalid', 'true');
+        table.setAttribute('aria-busy', 'false');
+        showEmpty('Enter a valid food ID to search.');
+        input.focus();
+        return;
+      }
+
+      status.textContent = 'Loading menu...';
+      table.setAttribute('aria-busy', 'true');
+      foodList.replaceChildren();
+
+      try {
+        const url = id ? `/api/foods/${encodeURIComponent(id)}` : '/api/foods';
+        const response = await fetch(url);
+        const data = await response.json();
+        if (requestNumber !== latestRequest) return;
+        if (!response.ok) throw new Error(data.error || 'Unable to load the menu. Please try again.');
+
+        const foods = Array.isArray(data) ? data : [data];
+        foods.forEach((item) => {
+          const row = foodList.insertRow();
+          [item.id, item.food, item.price.toFixed(2)].forEach((value) => {
+            row.insertCell().textContent = value;
+          });
+        });
+        if (foods.length === 0) showEmpty('The menu is currently empty.');
+        status.textContent = id
+          ? `Showing food with ID ${Number(id)}.`
+          : `Showing all ${foods.length} food items.`;
+      } catch (error) {
+        if (requestNumber !== latestRequest) return;
+        status.textContent = error instanceof TypeError
+          ? 'Cannot connect to the server. Please try again.'
+          : error.message;
+        status.className = 'error';
+        showEmpty('No food to display. Select Show all to reload the menu.');
+      } finally {
+        if (requestNumber === latestRequest) table.setAttribute('aria-busy', 'false');
+      }
+    }
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      loadFoods(input.value.trim());
+    });
+
+    document.getElementById('show-all').addEventListener('click', () => {
+      input.value = '';
+      loadFoods();
+    });
+
+    loadFoods();
+  </script>
+</body>
+</html>
